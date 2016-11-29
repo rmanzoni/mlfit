@@ -4,6 +4,9 @@ import sympy
 import iminuit
 import numpy as np
 from scipy.stats import multivariate_normal
+from sklearn.preprocessing import normalize
+from time import time
+import profile
 
 class MultivariateGaussianFitterNLL():
     '''
@@ -74,10 +77,10 @@ class MultivariateGaussianFitterNLL():
             print 'determinant: ', cov.det()
         
         # check singularity / inveritbility
-        if cov.det() > 1.e-14:
+        if cov.det() > 0.:
             nll = -multivariate_normal.logpdf(self.events,
-                                              mean=np.array([x, y, z]).astype(np.float64),
-                                              cov=np.matrix(cov)).astype(np.float64).sum().astype(np.float64)
+                                              mean=np.array([x, y, z]),
+                                              cov=np.matrix(cov)).sum()
         else:
             print 'WARNING! Singular covariance matrix, cannot invert!'
             return float('nan')
@@ -93,9 +96,9 @@ if __name__ == '__main__':
 
     # ---------- GENERATE EVENTS -----------
     # generate events with somewhat realistic parameters
-    ntoys = 10000
-    
-    # centroid position
+    ntoys = 1000000
+          
+    # centroid       position
     pos = np.array([0.067, 0.109, .805,])
     
     # build the covariance matrix from angles and widths,
@@ -110,7 +113,7 @@ if __name__ == '__main__':
     )
     
     # convert the covaraince matrix into a numpy array
-    cov = np.array(cov).astype(np.float)                 
+    cov = np.array(cov).astype(float)                
     
     # fix random seed
     rng = np.random.RandomState(1986)
@@ -119,24 +122,29 @@ if __name__ == '__main__':
     mvg = rng.multivariate_normal(pos, cov, ntoys)
 
     print 'generated %d toys' %ntoys
+
+    # since we have to deal with different orders of magnitude, let's first normalize the inputs
+    averages = np.mean(mvg, axis=0)
     
     # create a multivariate gaussian likelihood for the given dataset
     bs = MultivariateGaussianFitterNLL(mvg, verbose=False)
+
+    start_time = time()
 
     print 'find positions only'
     # instantiate a minimizer, fix all but the positions
     minimizer_pos = iminuit.Minuit(
         bs.nll,
         pedantic=False,
-        x=0.,
-        y=0.,
-        z=0.,
+        x=averages[0],
+        y=averages[1],
+        z=averages[2],
         theta_x=0.,
         theta_y=0.,
         theta_z=0.,
-        sigma_x=0.002,
-        sigma_y=0.002,
-        sigma_z=4.,
+        sigma_x=stds[0],
+        sigma_y=stds[1],
+        sigma_z=stds[2],
         fix_theta_x=True,      
         fix_theta_y=True,      
         fix_theta_z=True,      
@@ -162,9 +170,9 @@ if __name__ == '__main__':
         theta_x=0.,
         theta_y=0.,
         theta_z=0.,
-        sigma_x=0.002,
-        sigma_y=0.002,
-        sigma_z=4.,
+        sigma_x=stds[0],
+        sigma_y=stds[1],
+        sigma_z=stds[2],
         fix_x=True,      
         fix_y=True,      
         fix_z=True,      
@@ -221,6 +229,8 @@ if __name__ == '__main__':
     
     # run the minimization            
     minimizer_tot.migrad()        
+
+    print 'fitted %d vertices in %.6f seconds' %(ntoys, time()-start_time)
 
     # print results
     print '\n========== FIT RESULTS ============'
