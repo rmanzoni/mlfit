@@ -1,12 +1,9 @@
 #!/usr/bin/python
 
-import sympy
 import iminuit
 import numpy as np
 from scipy.stats import multivariate_normal
-from sklearn.preprocessing import normalize
 from time import time
-import profile
 
 class MultivariateGaussianFitterNLL():
     '''
@@ -22,37 +19,38 @@ class MultivariateGaussianFitterNLL():
         https://en.wikipedia.org/wiki/Multivariate_normal_distribution#Density_function
         '''
   
-        rot_x = np.array([
+        rot_x = np.matrix([
             [ 1., 0.             ,  0.             ],
             [ 0., np.cos(theta_x), -np.sin(theta_x)],
             [ 0., np.sin(theta_x),  np.cos(theta_x)],
         ]).astype(np.float64)
         
-        rot_y = np.array([
+        rot_y = np.matrix([
             [  np.cos(theta_y), 0., np.sin(theta_y)],
             [  0.             , 1., 0.             ],
             [ -np.sin(theta_y), 0., np.cos(theta_y)],
         ]).astype(np.float64)
-
-        rot_z = np.array([
+    
+        rot_z = np.matrix([
             [ np.cos(theta_z), -np.sin(theta_z), 0.],
             [ np.sin(theta_z),  np.cos(theta_z), 0.],
             [ 0.             ,  0.             , 1.],
         ]).astype(np.float64)
         
-        widths = np.array([
+        widths = np.matrix([
             [ np.power(sigma_x, 2), 0.                  , 0.                  ],
             [ 0.                  , np.power(sigma_y, 2), 0.                  ],
             [ 0.                  , 0.                  , np.power(sigma_z, 2)],
         ]).astype(np.float64)
         
-        M_rot_x  = sympy.Matrix(rot_x)
-        M_rot_y  = sympy.Matrix(rot_y)
-        M_rot_z  = sympy.Matrix(rot_z)
-        M_widths = sympy.Matrix(widths)
-        cov = (M_rot_x * (M_rot_y * (M_rot_z * widths * M_rot_z.T) * M_rot_y.T) * M_rot_x.T)
-                
+        rot_x_T = np.linalg.linalg.transpose(rot_x)
+        rot_y_T = np.linalg.linalg.transpose(rot_y)
+        rot_z_T = np.linalg.linalg.transpose(rot_z)
+        
+        cov = (rot_x * (rot_y * (rot_z * widths * rot_z_T) * rot_y_T) * rot_x_T)
+        
         return cov
+
                 
     def nll(self, x, y, z, theta_x, theta_y, theta_z, sigma_x, sigma_y, sigma_z):
         '''
@@ -77,10 +75,10 @@ class MultivariateGaussianFitterNLL():
             print 'determinant: ', cov.det()
         
         # check singularity / inveritbility
-        if cov.det() > 0.:
+        if np.linalg.det(cov) > 0.:
             nll = -multivariate_normal.logpdf(self.events,
                                               mean=np.array([x, y, z]),
-                                              cov=np.matrix(cov)).sum()
+                                              cov=cov).sum()
         else:
             print 'WARNING! Singular covariance matrix, cannot invert!'
             return float('nan')
@@ -112,9 +110,6 @@ if __name__ == '__main__':
         sigma_z=4.
     )
     
-    # convert the covaraince matrix into a numpy array
-    cov = np.array(cov).astype(float)                
-    
     # fix random seed
     rng = np.random.RandomState(1986)
     
@@ -125,6 +120,7 @@ if __name__ == '__main__':
 
     # since we have to deal with different orders of magnitude, let's first normalize the inputs
     averages = np.mean(mvg, axis=0)
+    stds = np.std(mvg, axis=0)
     
     # create a multivariate gaussian likelihood for the given dataset
     bs = MultivariateGaussianFitterNLL(mvg, verbose=False)
@@ -152,12 +148,12 @@ if __name__ == '__main__':
         fix_sigma_y=True,      
         fix_sigma_z=True,      
     ) 
-    
-    # make it NOT verbose
-    minimizer_pos.set_print_level(-1)
-    
+            
     # run the minimization            
     minimizer_pos.migrad()        
+
+    t1 = time()
+    print '\t==> found in %.3f seconds' %(t1-start_time)
 
     print 'find sigmas only'
     # instantiate a minimizer, fix all the positions to the values found before, relax widths
@@ -183,6 +179,9 @@ if __name__ == '__main__':
     
     # run the minimization            
     minimizer_sigma.migrad()        
+
+    t2 = time()
+    print '\t==> found in %.3f seconds' %(t2-t1)
 
     print 'find tilts only'
     # instantiate a minimizer, fix all but the thetas to the values found before
@@ -210,6 +209,9 @@ if __name__ == '__main__':
     # run the minimization            
     minimizer_tilt.migrad()        
 
+    t3 = time()
+    print '\t==> found in %.3f seconds' %(t3-t2)
+
     print 'find all parameters'
     # instantiate a minimizer, all free
     minimizer_tot = iminuit.Minuit(
@@ -230,7 +232,10 @@ if __name__ == '__main__':
     # run the minimization            
     minimizer_tot.migrad()        
 
-    print 'fitted %d vertices in %.6f seconds' %(ntoys, time()-start_time)
+    t4 = time()
+    print '\t==> found in %.3f seconds' %(t4-t3)
+
+    print 'fitted %d vertices in %.6f seconds total time' %(ntoys, t4-start_time)
 
     # print results
     print '\n========== FIT RESULTS ============'
